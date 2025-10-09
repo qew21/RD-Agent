@@ -342,13 +342,52 @@ class ValidationSelector(SOTAexpSelector):
 
         return best_exp
 
-    def print_code(self, data_py_code: str, grade_py_code: str):
+    def print_code(self, data_py_code: str, grade_py_code: str = ""):
         logger.info("Successfully ran data.py.")
         print("======== data.py ========")
         print(data_py_code)
-        print("======== grade.py ========")
-        print(grade_py_code)
+        if grade_py_code:
+            print("======== grade.py ========")
+            print(grade_py_code)
         print("======== code end ========")
+
+    def prepare_debug_data(self):
+        mock_folder = f"/tmp/mock/{self.competition}"
+        input_folder = T("scenarios.data_science.share:scen.input_path").r()
+        data_py_path = Path(mock_folder) / "data.py"
+        data_py_path.parent.mkdir(parents=True, exist_ok=True)
+        if (self.sample_code_path / self.competition / "data.py").exists():
+            (Path(mock_folder) / input_folder).mkdir(parents=True, exist_ok=True)
+            data_py_code = self._generate_and_run_script(
+                script_type="debug",
+                prompt_template_key="debug",
+                reference_exp=None,
+                competition=self.competition,
+                mock_folder=mock_folder,
+                prompt_kwargs={
+                    "reference_code": (Path(self.sample_code_path / self.competition / "data.py")).read_text(),
+                    "input_folder": input_folder,
+                },
+            )
+            ws = FBWorkspace()
+            ws.inject_files(**{f"data.py": data_py_code})
+            env = get_ds_env(
+                extra_volumes={
+                    str(Path(mock_folder) / input_folder): {"bind": input_folder, "mode": "rw"},
+                    f"{DS_RD_SETTING.local_data_path}/{self.competition}": "./source",
+                },
+                running_timeout_period=DS_RD_SETTING.full_timeout,
+            )
+            result = ws.run(env=env, entry=f"python data.py --cache-buster={time.time()}")  # Do not cache the result
+            if result.exit_code == 0:
+                self.print_code(data_py_code)
+                debug_path = f"{DS_RD_SETTING.local_data_path}/sample/{self.competition}"
+                Path(debug_path).mkdir(parents=True, exist_ok=True)
+                shutil.rmtree(debug_path)
+                shutil.copytree(mock_folder, debug_path)
+                print(f"ValidationSelector: Replaced sample data for {self.competition}")
+            else:
+                print(f"ValidationSelector: Failed to prepare sample data for {self.competition}.")
 
     def _prepare_validation_scripts(
         self, reference_exp: DSExperiment, competition: str, mock_folder: str
@@ -430,10 +469,10 @@ class ValidationSelector(SOTAexpSelector):
         self,
         script_type: str,
         prompt_template_key: str,
-        reference_exp: DSExperiment,
         competition: str,
         mock_folder: str,
         prompt_kwargs: dict,
+        reference_exp: DSExperiment | None = None,
     ) -> str:
         """A helper to generate, run, and validate a script (data.py or grade.py)."""
         system_prompt = T(".prompts:sample_data.system").r()  # Generic system prompt for both
@@ -451,12 +490,13 @@ class ValidationSelector(SOTAexpSelector):
 
             # Create a temporary workspace to test the generated script
             ws = FBWorkspace()
-            ws.inject_code_from_file_dict(reference_exp.experiment_workspace)
             ws.inject_files(**{f"{script_type}.py": generated_code})
-            reference_code = reference_exp.experiment_workspace.file_dict.get("main.py", "")
-            ws.inject_files(**{"reference_code.py": reference_code})
+            if reference_exp:
+                ws.inject_code_from_file_dict(reference_exp.experiment_workspace)
+                reference_code = reference_exp.experiment_workspace.file_dict.get("main.py", "")
+                ws.inject_files(**{"reference_code.py": reference_code})
 
-            if script_type == "data":
+            if script_type in ["data", "debug"]:
                 # For data.py, we need the original data to sample from
                 env = get_ds_env(
                     extra_volumes={
@@ -500,12 +540,14 @@ class ValidationSelector(SOTAexpSelector):
                             err_msg = "No submission.csv found in workspace after running main.py with generated data."
                     else:
                         err_msg = f"Error in main.py with generated data: {shrink_text(stdout, context_lines=20, line_len=500)}"
-                else:
+                elif script_type == "grade":
                     score = _parsing_score(stdout)
                     if score is not None:
                         return generated_code
                     else:
                         err_msg = f"No score found in stdout: {stdout}."
+                else:
+                    return generated_code
             else:
                 err_msg = f"Error in {script_type}.py: {shrink_text(stdout, context_lines=20, line_len=500)}"
 

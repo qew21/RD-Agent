@@ -11,6 +11,7 @@ from rdagent.log import rdagent_logger as logger
 from rdagent.log.timer import RD_Agent_TIMER_wrapper
 from rdagent.oai.llm_utils import APIBackend
 from rdagent.scenarios.data_science.debug.data import create_debug_data
+from rdagent.scenarios.data_science.proposal.exp_gen.select.submit import ValidationSelector
 from rdagent.scenarios.data_science.scen.utils import describe_data_folder_v2
 from rdagent.scenarios.kaggle.kaggle_crawler import (
     crawl_descriptions,
@@ -50,6 +51,15 @@ class DataScienceScen(Scenario):
                     )
                 else:
                     create_debug_data(competition, dataset_path=local_path)
+            elif DS_RD_SETTING.sample_code_path:
+                selector = ValidationSelector(
+                    candidate=[],
+                    direction_sign=True,
+                    competition=competition,
+                    only_sample=True,
+                    sample_code_path=DS_RD_SETTING.sample_code_path,
+                )
+                selector.prepare_debug_data()
         else:
             self.debug_path = f"{local_path}/{competition}"
 

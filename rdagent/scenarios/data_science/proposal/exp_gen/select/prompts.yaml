@@ -94,6 +94,7 @@ sample_data:
     Save test label with id to `{{ input_folder }}/label.csv`, which is to be used for grading.
     Load source data from path `./source` directory. 
     Please make sure the new test set has the same columns as the original test set. 
+    If a class has too few instances to split, ensure that the training set still contains at least one sample of every class.
     Please make sure all files used in the original code and exists in source folder are also available in the `{{ input_folder }}` folder.
     Ignore all files that do not exist in the read only source folder.
     {% if error %} 
@@ -108,6 +109,21 @@ grade:
     Input files (relative to current working directory):
     - `{{ input_folder }}/label.csv` and `submission.csv`
     Output format: `{'score': float, 'metric': str}`
+    {% if error %} 
+    {{ error }}
+    {% endif %}
+
+debug: 
+  user: |-
+    Reference sample code:
+    {{ reference_code }}
+    Write a separate script based on this code to sample 5% of source train data (while maintaining the class proportions as much as possible) as the new train set,
+    and 5% of source test data as the new test set. Drop unused data. Save the new train and test in the `{{ input_folder }}` folder. The sampled data is used for code validation.
+    Load source data from path `./source` directory. 
+    Please make sure the new test set is a subset of the original test set. 
+    If a class has too few instances to split, ensure that the training set still contains at least one sample of every class.
+    Please make sure all files used in the original code and exists in source folder are also available in the `{{ input_folder }}` folder.
+    Ignore all files that do not exist in the read only source folder.
     {% if error %} 
     {{ error }}
     {% endif %}
